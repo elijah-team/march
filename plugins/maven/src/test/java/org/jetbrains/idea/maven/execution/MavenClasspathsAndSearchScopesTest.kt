@@ -1215,7 +1215,7 @@ $scope</scope>
     val m6E3 = m6OrderEntries[3]
     UsefulTestCase.assertInstanceOf(m6E3, ModuleSourceOrderEntry::class.java)
 
-    val jmockDir = VfsUtil.findFileByIoFile(File(repositoryPath, "jmock/jmock/1.0/jmock-1.0.jar"), true)
+    val jmockDir = VfsUtil.findFile(repositoryPath.resolve("jmock/jmock/1.0/jmock-1.0.jar"), true)
     assertNotNull(jmockDir)
     val jmockJar = JarFileSystem.getInstance().getJarRootForLocalFile(jmockDir!!)
     assertNotNull(jmockJar)
@@ -1264,7 +1264,7 @@ $scope</scope>
     val m6E2 = m6OrderEntries[2]
     UsefulTestCase.assertInstanceOf(m6E2, ModuleSourceOrderEntry::class.java)
 
-    val jmockDir = VfsUtil.findFileByIoFile(File(repositoryPath, "jmock/jmock/1.0/jmock-1.0.jar"), true)
+    val jmockDir = VfsUtil.findFile(repositoryPath.resolve("jmock/jmock/1.0/jmock-1.0.jar"), true)
     assertNotNull(jmockDir)
     val jmockJar = JarFileSystem.getInstance().getJarRootForLocalFile(jmockDir!!)
     assertNotNull(jmockJar)
@@ -1476,7 +1476,7 @@ $scope</scope>
     f.parent.createDirectories()
 
     createEmptyJar(f.parent.toString(), f.fileName.toString())
-    repositoryPath = createProjectSubDir("repo").path
+    repositoryPath = createProjectSubDir("repo").toNioPath()
   }
 
   private fun createOutputDirectories() {

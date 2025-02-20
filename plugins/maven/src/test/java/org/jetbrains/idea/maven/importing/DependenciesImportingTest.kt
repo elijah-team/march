@@ -1433,7 +1433,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
   @Test
   fun testResolvingFromRepositoriesIfSeveral() = runBlocking {
     val fixture = MavenCustomNioRepositoryHelper(dir, "local1")
-    repositoryPath = fixture.getTestData("local1").toCanonicalPath()
+    repositoryPath = fixture.getTestData("local1")
     removeFromLocalRepository("junit")
 
     val file = fixture.getTestData("local1/junit/junit/4.0/junit-4.0.pom")
@@ -1463,7 +1463,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testUsingMirrors() = runBlocking {
-    repositoryPath = dir.resolve("repo").toCanonicalPath()
+    repositoryPath = dir.resolve("repo")
     val mirrorPath = pathTransformer.toRemotePath(dir.resolve("mirror").toCanonicalPath())
 
     updateSettingsXmlFully("""<settings>
@@ -2158,7 +2158,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
   fun testDoNotFailToConfigureUnresolvedVersionRangeDependencies() = runBlocking {
     // should not throw NPE when accessing CustomArtifact.getPath();
     val helper = MavenCustomNioRepositoryHelper(dir, "local1")
-    val repoPath = helper.getTestData("local1").toCanonicalPath()
+    val repoPath = helper.getTestData("local1")
     repositoryPath = repoPath
 
     importProjectAsync("""
@@ -2194,7 +2194,7 @@ class DependenciesImportingTest : MavenMultiVersionImportingTestCase() {
   @Test
   fun testVersionRangeInDependencyManagementDoesntBreakIndirectDependency() = runBlocking {
     val helper = MavenCustomNioRepositoryHelper(dir, "local1")
-    val repoPath = helper.getTestData("local1").toCanonicalPath()
+    val repoPath = helper.getTestData("local1")
     repositoryPath = repoPath
 
     createProjectPom("""

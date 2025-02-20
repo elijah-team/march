@@ -10,6 +10,7 @@ import com.intellij.terminal.frontend.action.TerminalFrontendDataContextUtils.te
 import org.jetbrains.plugins.terminal.block.BlockTerminalController
 import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.blockTerminalController
 import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.isAlternateBufferEditor
+import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.isAlternateBufferModelEditor
 import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.isOutputEditor
 import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.isOutputModelEditor
 import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.isPromptEditor
@@ -23,24 +24,24 @@ internal abstract class TerminalSearchActionHandler(private val originalHandler:
       doWithBlockController(blockController)
     }
     else if (reworkedController != null) {
-      doWithReworkedController(reworkedController)
+      doWithReworkedController(editor, reworkedController)
     }
     else originalHandler?.execute(editor, caret, dataContext)
   }
 
   abstract fun doWithBlockController(blockController: BlockTerminalController)
 
-  abstract fun doWithReworkedController(searchController: TerminalSearchController)
+  abstract fun doWithReworkedController(editor: Editor, searchController: TerminalSearchController)
 
   override fun isEnabledForCaret(editor: Editor, caret: Caret, dataContext: DataContext?): Boolean {
     return editor.isPromptEditor
            || editor.isOutputEditor
-           || editor.isOutputModelEditor
+           || editor.isOutputModelEditor || editor.isAlternateBufferModelEditor
            || originalHandler?.isEnabled(editor, caret, dataContext) == true
   }
 }
 
-internal class TerminalFindHandler() : TerminalSearchActionHandler(originalHandler = null) {
+internal class TerminalFindHandler(originalHandler: EditorActionHandler?) : TerminalSearchActionHandler(originalHandler) {
   override fun doWithBlockController(blockController: BlockTerminalController) {
     if (blockController.searchSession != null) {
       blockController.activateSearchSession()
@@ -48,8 +49,8 @@ internal class TerminalFindHandler() : TerminalSearchActionHandler(originalHandl
     else blockController.startSearchSession()
   }
 
-  override fun doWithReworkedController(searchController: TerminalSearchController) {
-    searchController.startOrActivateSearchSession()
+  override fun doWithReworkedController(editor: Editor, searchController: TerminalSearchController) {
+    searchController.startOrActivateSearchSession(editor)
   }
 }
 
@@ -58,7 +59,7 @@ internal class TerminalFindNextHandler(originalHandler: EditorActionHandler) : T
     blockController.searchSession?.searchForward()
   }
 
-  override fun doWithReworkedController(searchController: TerminalSearchController) {
+  override fun doWithReworkedController(editor: Editor, searchController: TerminalSearchController) {
     searchController.searchForward()
   }
 }
@@ -68,7 +69,7 @@ internal class TerminalFindPreviousHandler(originalHandler: EditorActionHandler)
     blockController.searchSession?.searchBackward()
   }
 
-  override fun doWithReworkedController(searchController: TerminalSearchController) {
+  override fun doWithReworkedController(editor: Editor, searchController: TerminalSearchController) {
     searchController.searchBackward()
   }
 }

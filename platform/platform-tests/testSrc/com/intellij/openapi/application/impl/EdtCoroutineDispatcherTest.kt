@@ -7,6 +7,7 @@ import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.testFramework.LeakHunter
+import com.intellij.testFramework.assertErrorLogged
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.util.application
@@ -16,11 +17,7 @@ import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotEquals
-import org.junit.jupiter.api.Assertions.assertSame
-import org.junit.jupiter.api.Assertions.fail
+import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -30,6 +27,7 @@ import org.junit.jupiter.params.provider.MethodSource
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
+import kotlin.test.assertTrue
 
 @TestApplication
 class EdtCoroutineDispatcherTest {
@@ -151,17 +149,16 @@ class EdtCoroutineDispatcherTest {
   fun `null modality is immediately dispatched under explicit nonModal`(dispatcher: CoroutineContext): Unit = `immediate dispatch`(dispatcher, ModalityState.nonModal(), null)
 
   private fun `immediate dispatch`(dispatcher: CoroutineContext, outerModality: ModalityState?, innerModality: ModalityState?): Unit = timeoutRunBlocking {
-    val mainDispatcher = dispatcher.immediateDispatcher
     val eventNum = AtomicInteger()
     val events = hashSetOf<Int>()
     withContext(dispatcher.let { outerModality?.asContextElement()?.plus(it) ?: it }) {
-      val job1 = launch(mainDispatcher.let { innerModality?.asContextElement()?.plus(it) ?: it }) {
+      val job1 = launch(Dispatchers.Main.immediate.let { innerModality?.asContextElement()?.plus(it) ?: it }) {
         events += eventNum.get()
       }
       val job2 = launch(dispatcher.let { innerModality?.asContextElement()?.plus(it) ?: it }) {
         eventNum.incrementAndGet()
       }
-      val job3 = launch(mainDispatcher.let { innerModality?.asContextElement()?.plus(it) ?: it }) {
+      val job3 = launch(Dispatchers.Main.immediate.let { innerModality?.asContextElement()?.plus(it) ?: it }) {
         events += eventNum.get()
       }
       job1.join()
@@ -174,19 +171,18 @@ class EdtCoroutineDispatcherTest {
 
   @UiThreadDispatcherTest
   fun `immediate dispatch with the same modality`(dispatcher: CoroutineContext): Unit = timeoutRunBlocking {
-    val mainDispatcher = dispatcher.immediateDispatcher
     val eventNum = AtomicInteger()
     val events = hashSetOf<Int>()
     val jobs = mutableListOf<Job>()
     withContext(dispatcher) {
       withModality {
-        jobs += launch(mainDispatcher + ModalityState.current().asContextElement()) {
+        jobs += launch(Dispatchers.Main.immediate + ModalityState.current().asContextElement()) {
           events += eventNum.get()
         }
         jobs += launch(dispatcher + ModalityState.current().asContextElement()) {
           eventNum.incrementAndGet()
         }
-        jobs += launch(mainDispatcher + ModalityState.current().asContextElement()) {
+        jobs += launch(Dispatchers.Main.immediate + ModalityState.current().asContextElement()) {
           events += eventNum.get()
         }
       }
@@ -254,7 +250,7 @@ class EdtCoroutineDispatcherTest {
   }
 
   @UiThreadDispatcherTest
-  fun `immediate dispatch is not performed when the context modality is null`(dispatcher: CoroutineContext): Unit = timeoutRunBlocking {
+  fun `immediate dispatch is performed when the context modality is null`(dispatcher: CoroutineContext): Unit = timeoutRunBlocking {
     val jobs = mutableListOf<Job>()
     withContext(dispatcher) {
       val flow = MutableSharedFlow<Int>()
@@ -270,7 +266,9 @@ class EdtCoroutineDispatcherTest {
           }
         }
       }
+      lateinit var innerModality: ModalityState
       withModality {
+        innerModality = ModalityState.current()
         jobs += launch(Dispatchers.Main.immediate + ModalityState.current().asContextElement()) {
           flow.emit(1)
           flow.emit(2)
@@ -278,16 +276,16 @@ class EdtCoroutineDispatcherTest {
       }
       jobs.forEach { it.join() }
       assertThat(collected.get()).isEqualTo(2)
-      assertThat(modalities).containsOnly(ModalityState.nonModal())
+      assertThat(modalities).containsOnly(innerModality)
     }
   }
 
   @Test
-  fun `main ui dispatcher performs dispatch when used under edt`(): Unit = timeoutRunBlocking {
+  fun `main ui dispatcher does not perform dispatch when used under edt`(): Unit = timeoutRunBlocking {
     withContext(Dispatchers.EDT) {
       assertThat(application.isReadAccessAllowed).isTrue
-      withContext(Dispatchers.UI.immediateDispatcher) {
-        assertThat(application.isReadAccessAllowed).isFalse
+      withContext(Dispatchers.UIImmediate) {
+        assertThat(application.isReadAccessAllowed).isTrue
       }
       assertThat(application.isReadAccessAllowed).isTrue
     }
@@ -297,7 +295,7 @@ class EdtCoroutineDispatcherTest {
   fun `main edt dispatcher performs dispatch when used under ui`(): Unit = timeoutRunBlocking {
     withContext(Dispatchers.UI) {
       assertThat(application.isReadAccessAllowed).isFalse
-      withContext(Dispatchers.EDT.immediateDispatcher) {
+      withContext(Dispatchers.EDTImmediate) {
         assertThat(application.isReadAccessAllowed).isTrue
       }
       assertThat(application.isReadAccessAllowed).isFalse
@@ -379,6 +377,32 @@ class EdtCoroutineDispatcherTest {
     }
   }
 
+  @Test
+  fun `main dispatcher fails softly on locking actions`(): Unit = timeoutRunBlocking(context = Dispatchers.Main) {
+    val counter = AtomicInteger()
+    assertErrorLogged<ThreadingSupport.LockAccessDisallowed> {
+      application.runWriteAction {
+        counter.incrementAndGet()
+      }
+    }
+    assertErrorLogged<ThreadingSupport.LockAccessDisallowed> {
+      application.runReadAction {
+        counter.incrementAndGet()
+      }
+    }
+    assertErrorLogged<ThreadingSupport.LockAccessDisallowed> {
+      assertTrue(ApplicationManagerEx.getApplicationEx().tryRunReadAction {
+        counter.incrementAndGet()
+      })
+    }
+    assertErrorLogged<ThreadingSupport.LockAccessDisallowed> {
+      application.runWriteIntentReadAction<Unit, Exception> {
+        counter.incrementAndGet()
+      }
+    }
+    assertThat(counter.get()).isEqualTo(4)
+  }
+
   @Suppress("ForbiddenInSuspectContextMethod")
   @Test
   fun `ui dispatcher preserves modality`() = timeoutRunBlocking(context = Dispatchers.EDT) {
@@ -405,6 +429,18 @@ class EdtCoroutineDispatcherTest {
       }
     }
   }
+
+  @Test
+  fun `immediate main dispatcher proceeds when modality is non-trivial`() = timeoutRunBlocking(context = Dispatchers.EDT) {
+    val job = Job()
+    withModality {
+      runBlocking(Dispatchers.Main.immediate) {
+        job.complete()
+      }
+    }
+    job.join()
+  }
+
 }
 
 @RequiresEdt
@@ -425,10 +461,13 @@ private fun withModality(action: () -> Unit) {
 internal fun uiThreadDispatchers(): List<Arguments> = listOf(
   Dispatchers.EDT,
   Dispatchers.UI,
+  Dispatchers.Main,
 ).map { Arguments.of(it) }
 
-private val CoroutineContext.immediateDispatcher: CoroutineContext
-  get() {
-    val dispatcher = this[ContinuationInterceptor] as MainCoroutineDispatcher
-    return dispatcher.immediate
-  }
+@Suppress("UnusedReceiverParameter")
+val Dispatchers.UIImmediate: CoroutineDispatcher
+  get() = (Dispatchers.UI[ContinuationInterceptor.Key] as MainCoroutineDispatcher).immediate
+
+@Suppress("UnusedReceiverParameter")
+val Dispatchers.EDTImmediate: CoroutineDispatcher
+  get() = (Dispatchers.EDT[ContinuationInterceptor.Key] as MainCoroutineDispatcher).immediate

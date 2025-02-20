@@ -36,7 +36,23 @@ public final class JavaModuleDefinitionInspection extends AbstractBaseJavaLocalI
 
       @Override
       public void visitRequiresStatement(@NotNull PsiRequiresStatement statement) {
-        checkModuleReference(statement);
+        checkModuleReference(statement.getReferenceElement());
+      }
+
+      @Override
+      public void visitModuleReferenceElement(@NotNull PsiJavaModuleReferenceElement refElement) {
+        super.visitModuleReferenceElement(refElement);
+        PsiJavaModuleReference ref = refElement.getReference();
+        if (refElement.getParent() instanceof PsiPackageAccessibilityStatement &&
+            ref != null && ref.multiResolve(true).length == 0) {
+          String message = JavaErrorKinds.MODULE_NOT_FOUND.create(refElement).description().toString();
+          holder.registerProblem(refElement, message);
+        }
+      }
+      
+      @Override
+      public void visitImportModuleStatement(@NotNull PsiImportModuleStatement statement) {
+        checkModuleReference(statement.getModuleReference());
       }
 
       @Override
@@ -50,7 +66,7 @@ public final class JavaModuleDefinitionInspection extends AbstractBaseJavaLocalI
         var kind = state == JavaPsiModuleUtil.PackageReferenceState.PACKAGE_NOT_FOUND
                    ? JavaErrorKinds.MODULE_REFERENCE_PACKAGE_NOT_FOUND
                    : JavaErrorKinds.MODULE_REFERENCE_PACKAGE_EMPTY;
-        String message = kind.description(statement, null).toString();
+        String message = kind.create(statement).description().toString();
         String packageName = statement.getPackageName();
         Module module = ModuleUtilCore.findModuleForFile(holder.getFile());
         IntentionAction action =
@@ -60,8 +76,7 @@ public final class JavaModuleDefinitionInspection extends AbstractBaseJavaLocalI
           .register();
       }
 
-      void checkModuleReference(@NotNull PsiRequiresStatement statement) {
-        PsiJavaModuleReferenceElement refElement = statement.getReferenceElement();
+      private void checkModuleReference(PsiJavaModuleReferenceElement refElement) {
         if (refElement != null) {
           PsiJavaModuleReference ref = refElement.getReference();
           if (ref != null) {

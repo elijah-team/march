@@ -235,6 +235,15 @@ final class JavaErrorFixProvider {
         HighlightFixUtil.getIncreaseLanguageLevelFixes(error.psi(), feature).forEach(sink);
       }
     });
+    fix(SWITCH_LABEL_DUPLICATE, error -> {
+      if (error.psi() instanceof PsiCaseLabelElement caseLabel) {
+        return myFactory.createDeleteSwitchLabelFix(caseLabel);
+      }
+      else if (error.context() == JavaPsiSwitchUtil.SwitchSpecialValue.DEFAULT_VALUE) {
+        return myFactory.createDeleteDefaultFix(null, error.psi());
+      }
+      return null;
+    });
   }
 
   private void createMethodFixes() {
@@ -411,13 +420,8 @@ final class JavaErrorFixProvider {
       }
     });
     fix(UNSUPPORTED_FEATURE, error -> {
-      if (error.context() == JavaFeature.PRIMITIVE_TYPES_IN_PATTERNS &&
-          error.psi() instanceof PsiInstanceOfExpression instanceOfExpression) {
-        PsiTypeElement element = InstanceOfUtils.findCheckTypeElement(instanceOfExpression);
-        PsiType operandType = instanceOfExpression.getOperand().getType();
-        if (element != null && operandType != null && TypeConversionUtil.isPrimitiveAndNotNull(element.getType())) {
-          return myFactory.createReplacePrimitiveWithBoxedTypeAction(operandType, requireNonNull(element));
-        }
+      if (error.context() == JavaFeature.PRIMITIVE_TYPES_IN_PATTERNS) {
+        return HighlightFixUtil.createPrimitiveToBoxedPatternFix(error.psi());
       }
       return null;
     });
@@ -439,7 +443,7 @@ final class JavaErrorFixProvider {
     fix(PATTERN_INSTANCEOF_EQUALS, redundantInstanceOfFix);
     fix(PATTERN_INSTANCEOF_SUPERTYPE, redundantInstanceOfFix);
   }
-  
+
   private void createVariableFixes() {
     fix(UNNAMED_VARIABLE_BRACKETS, error -> new NormalizeBracketsFix(error.psi()));
     fix(UNNAMED_VARIABLE_WITHOUT_INITIALIZER, error -> myFactory.createAddVariableInitializerFix(error.psi()));
@@ -604,6 +608,9 @@ final class JavaErrorFixProvider {
       if (error.psi().getParent() instanceof PsiMethodCallExpression methodCall) {
         HighlightFixUtil.registerMethodCallIntentions(sink, methodCall, methodCall.getArgumentList());
       }
+      else if (error.psi() instanceof PsiReferenceExpression expression) {
+        sink.accept(myFactory.createRenameWrongRefFix(expression));
+      }
     });
     fixes(CALL_UNRESOLVED, (error, sink) -> {
       PsiMethodCallExpression methodCall = error.psi();
@@ -639,9 +646,7 @@ final class JavaErrorFixProvider {
     });
     fixes(EXPRESSION_SUPER_UNQUALIFIED_DEFAULT_METHOD, (error, sink) ->
       QualifySuperArgumentFix.registerQuickFixAction(error.context(), sink));
-    fix(REFERENCE_UNRESOLVED, error ->
-      PsiTreeUtil.skipParentsOfType(error.psi(), PsiJavaCodeReferenceElement.class) instanceof PsiNewExpression newExpression &&
-      HighlightUtil.isCallToStaticMember(newExpression) ? new RemoveNewKeywordFix(newExpression) : null);
+    fix(REFERENCE_UNRESOLVED, error -> HighlightFixUtil.createUnresolvedReferenceFix(error.psi()));
     fix(REFERENCE_QUALIFIER_PRIMITIVE,
         error -> error.psi() instanceof PsiReferenceExpression ref ? myFactory.createRenameWrongRefFix(ref) : null);
     fix(CAST_INTERSECTION_NOT_INTERFACE, error -> {
@@ -688,12 +693,18 @@ final class JavaErrorFixProvider {
     fix(CALL_MEMBER_BEFORE_CONSTRUCTOR, qualifyFix);
     fix(CLASS_OR_PACKAGE_EXPECTED, error -> myFactory.createRemoveQualifierFix(
       requireNonNull(error.psi().getQualifierExpression()), error.psi(), error.context()));
+    fix(SWITCH_LABEL_QUALIFIED_ENUM, error -> myFactory.createDeleteFix(
+      requireNonNull(error.psi().getQualifier()), JavaErrorBundle.message("qualified.enum.constant.in.switch.remove.fix")));
+    fix(SWITCH_DEFAULT_LABEL_CONTAINS_CASE, error -> myFactory.createReplaceCaseDefaultWithDefaultFix(error.context()));
   }
 
   private void createAccessFixes() {
     JavaFixesPusher<PsiJavaCodeReferenceElement, JavaResolveResult> accessFix = (error, sink) -> {
       if (error.context().isStaticsScopeCorrect() && error.context().getElement() instanceof PsiJvmMember member) {
         HighlightFixUtil.registerAccessQuickFixAction(sink, member, error.psi(), null);
+        if (error.psi() instanceof PsiReferenceExpression expression) {
+          sink.accept(myFactory.createRenameWrongRefFix(expression));
+        }
       }
     };
     fixes(ACCESS_PRIVATE, accessFix);

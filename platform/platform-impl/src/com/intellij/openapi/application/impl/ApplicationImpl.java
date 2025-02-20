@@ -121,8 +121,6 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
     };
   };
 
-  private static final ImplicitWriteIntentLockListener implicitWriteIntentLockListener = new ImplicitWriteIntentLockListener();
-
   @SuppressWarnings("Convert2Lambda")
   private final Supplier<OTelReadWriteActionsMonitor> otelMonitor = new SynchronizedClearableLazy<>(new Function0<>() {
     @Override
@@ -1269,9 +1267,6 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
     getThreadingSupport().setLockAcquisitionListener(app.myLockDispatcherListener);
     getThreadingSupport().setSuspendingWriteActionListener(app.myLockDispatcherListener);
     getThreadingSupport().setLegacyIndicatorProvider(myLegacyIndicatorProvider);
-    app.addReadActionListener(implicitWriteIntentLockListener, app);
-    app.addWriteIntentReadActionListener(implicitWriteIntentLockListener, app);
-    app.addWriteActionListener(implicitWriteIntentLockListener, app);
 
     app.addApplicationListener(new ApplicationListener() {
       @Override
@@ -1311,8 +1306,8 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
   }
 
   @Override
-  public void prohibitTakingLocksInsideAndRun(@NotNull Runnable runnable) {
-    getThreadingSupport().prohibitTakingLocksInsideAndRun(runnable);
+  public void prohibitTakingLocksInsideAndRun(@NotNull Runnable runnable, boolean failSoftly) {
+    getThreadingSupport().prohibitTakingLocksInsideAndRun(runnable, failSoftly);
   }
 
   @Override

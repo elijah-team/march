@@ -1,14 +1,12 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl.analysis;
 
-import com.intellij.codeInsight.daemon.JavaErrorBundle;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.codeInsight.daemon.impl.HighlightVisitor;
 import com.intellij.codeInsight.intention.CommonIntentionAction;
 import com.intellij.codeInsight.quickfix.UnresolvedReferenceQuickFixProvider;
 import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
-import com.intellij.java.codeserver.core.JavaPsiModuleUtil;
 import com.intellij.java.codeserver.highlighting.JavaErrorCollector;
 import com.intellij.java.codeserver.highlighting.errors.JavaCompilationError;
 import com.intellij.java.codeserver.highlighting.errors.JavaErrorHighlightType;
@@ -52,7 +50,6 @@ public class HighlightVisitorImpl extends JavaElementVisitor implements Highligh
   private @NotNull LanguageLevel myLanguageLevel;
 
   private @NotNull PsiFile myFile;
-  private PsiJavaModule myJavaModule;
   private JavaErrorCollector myCollector;
 
   private final @NotNull Consumer<? super HighlightInfo.Builder> myErrorSink = builder -> add(builder);
@@ -131,7 +128,6 @@ public class HighlightVisitorImpl extends JavaElementVisitor implements Highligh
       }
     }
     finally {
-      myJavaModule = null;
       myFile = null;
       myHolder = null;
       myCollector = null;
@@ -148,7 +144,6 @@ public class HighlightVisitorImpl extends JavaElementVisitor implements Highligh
     myHolder = holder;
     myFile = file;
     myLanguageLevel = PsiUtil.getLanguageLevel(file);
-    myJavaModule = JavaFeature.MODULES.isSufficient(myLanguageLevel) ? JavaPsiModuleUtil.findDescriptorByElement(file) : null;
     JavaErrorFixProvider errorFixProvider = JavaErrorFixProvider.getInstance();
     myCollector = new JavaErrorCollector(myFile, error -> reportError(error, errorFixProvider));
   }
@@ -189,7 +184,7 @@ public class HighlightVisitorImpl extends JavaElementVisitor implements Highligh
     Consumer<@NotNull CommonIntentionAction> consumer = fix -> info.registerFix(fix.asIntention(), null, null, null, null);
     errorFixProvider.processFixes(error, consumer);
     ErrorFixExtensionPoint.registerFixes(consumer, error.psi(), error.kind().key());
-    error.psiForKind(EXPRESSION_EXPECTED, REFERENCE_UNRESOLVED, REFERENCE_AMBIGUOUS)
+    error.psiForKind(EXPRESSION_EXPECTED, REFERENCE_UNRESOLVED, REFERENCE_AMBIGUOUS, ACCESS_PRIVATE, ACCESS_PACKAGE_LOCAL, ACCESS_PROTECTED)
       .or(() -> error.psiForKind(TYPE_UNKNOWN_CLASS).map(PsiTypeElement::getInnermostComponentReferenceElement))
       .or(() -> error.psiForKind(CALL_AMBIGUOUS_NO_MATCH, CALL_UNRESOLVED).map(PsiMethodCallExpression::getMethodExpression))
       .ifPresent(ref -> UnresolvedReferenceQuickFixProvider.registerUnresolvedReferenceLazyQuickFixes(ref, info));
@@ -199,10 +194,6 @@ public class HighlightVisitorImpl extends JavaElementVisitor implements Highligh
   @Override
   public void visitElement(@NotNull PsiElement element) {
     myCollector.processElement(element);
-  }
-
-  public static @Nullable JavaResolveResult resolveJavaReference(@NotNull PsiReference reference) {
-    return reference instanceof PsiJavaReference psiJavaReference ? psiJavaReference.advancedResolve(false) : null;
   }
 
   private boolean add(@Nullable HighlightInfo.Builder builder) {
@@ -254,7 +245,7 @@ public class HighlightVisitorImpl extends JavaElementVisitor implements Highligh
   @Override
   public void visitImportModuleStatement(@NotNull PsiImportModuleStatement statement) {
     super.visitImportModuleStatement(statement);
-    if (!hasErrorResults()) add(ModuleHighlightUtil.checkModuleReference(statement));
+    if (!hasErrorResults()) add(HighlightUtil.checkModuleReferenceAccess(statement));
   }
 
   static @Nullable JavaResolveResult resolveOptimised(@NotNull PsiJavaCodeReferenceElement ref, @NotNull PsiFile containingFile) {
@@ -280,12 +271,6 @@ public class HighlightVisitorImpl extends JavaElementVisitor implements Highligh
 
     if (!hasErrorResults()) {
       visitElement(expression);
-      if (hasErrorResults()) return;
-    }
-
-    PsiExpression qualifierExpression = expression.getQualifierExpression();
-    if (!hasErrorResults() && myJavaModule == null && qualifierExpression != null) {
-      add(GenericsHighlightUtil.checkMemberSignatureTypesAccessibility(expression));
     }
   }
 
@@ -320,8 +305,8 @@ public class HighlightVisitorImpl extends JavaElementVisitor implements Highligh
 
   @Override
   public void visitSwitchExpression(@NotNull PsiSwitchExpression expression) {
+    super.visitSwitchExpression(expression);
     checkSwitchBlock(expression);
-    if (!hasErrorResults()) super.visitSwitchExpression(expression);
   }
 
   private void checkSwitchBlock(@NotNull PsiSwitchBlock switchBlock) {
@@ -331,26 +316,13 @@ public class HighlightVisitorImpl extends JavaElementVisitor implements Highligh
   }
 
   @Override
-  public void visitModuleReferenceElement(@NotNull PsiJavaModuleReferenceElement refElement) {
-    super.visitModuleReferenceElement(refElement);
-    PsiJavaModuleReference ref = refElement.getReference();
-    if (refElement.getParent() instanceof PsiPackageAccessibilityStatement && 
-        ref != null && ref.multiResolve(true).length == 0) {
-      String message = JavaErrorBundle.message("module.not.found", refElement.getReferenceText());
-      HighlightInfo.Builder info =
-        HighlightInfo.newHighlightInfo(HighlightInfoType.WARNING).range(refElement).descriptionAndTooltip(message);
-      add(info);
-    }
-  }
-
-  @Override
   public void visitReferenceElement(@NotNull PsiJavaCodeReferenceElement ref) {
-    super.visitReferenceElement(ref);
     if (!(ref instanceof PsiExpression)) {
       JavaResolveResult result = resolveOptimised(ref, myFile);
       if (result != null) {
         add(HighlightUtil.checkReference(ref, result));
       }
     }
+    if (!hasErrorResults()) super.visitReferenceElement(ref);
   }
 }
