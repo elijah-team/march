@@ -192,6 +192,10 @@ open class JBHtmlPane : JEditorPane, Disposable {
       .build()
     updateDocumentationPaneDefaultCssRules(editorKit)
 
+    // The value might have changed already since the flow was created,
+    // so we need to update it manually just before we register the listener.
+    // For example, the background is changed when we set isEditable above.
+    mutableBackgroundFlow.value = background
     addPropertyChangeListener { evt: PropertyChangeEvent ->
       val propertyName = evt.propertyName
       if ("background" == propertyName || "UI" == propertyName) {
@@ -207,6 +211,12 @@ open class JBHtmlPane : JEditorPane, Disposable {
   override fun dispose() {
     caret.isVisible = false // Caret, if blinking, has to be deactivated.
   }
+
+  override fun getSelectedText(): String? =
+    // We need to replace zero-width space char used to represent <wbr>
+    // in JBHtmlEditorKit.JBHtmlDocument.JBHtmlReader.addSpecialElement().
+    // Swing HTML control does not accept elements with no text.
+    super.getSelectedText()?.replace("\u200B", "")
 
   override fun getText(): @Nls String {
     return myText

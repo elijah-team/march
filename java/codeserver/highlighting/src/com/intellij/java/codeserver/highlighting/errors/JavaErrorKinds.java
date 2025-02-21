@@ -308,6 +308,24 @@ public final class JavaErrorKinds {
         return message(messageKey, referenceName, formatMethod(abstractMethod),
                        formatClass(requireNonNull(abstractMethod.getContainingClass()), false));
       });
+  public static final Parameterized<PsiClass, OverrideClashContext> CLASS_INHERITS_ABSTRACT_AND_DEFAULT =
+    parameterized(PsiClass.class, OverrideClashContext.class, "class.inherits.abstract.and.default")
+      .withAnchor(PsiClass::getNameIdentifier)
+      .withRawDescription((cls, ctx) -> {
+        return message("class.inherits.abstract.and.default", formatClass(cls),
+                formatMethod(ctx.method()),
+                formatClass(requireNonNull(ctx.method().getContainingClass())),
+                formatClass(requireNonNull(ctx.superMethod().getContainingClass())));
+      });
+  public static final Parameterized<PsiClass, OverrideClashContext> CLASS_INHERITS_UNRELATED_DEFAULTS =
+    parameterized(PsiClass.class, OverrideClashContext.class, "class.inherits.unrelated.defaults")
+      .withAnchor(PsiClass::getNameIdentifier)
+      .withRawDescription((cls, ctx) -> {
+        return message("class.inherits.unrelated.defaults", formatClass(cls),
+                formatMethod(ctx.method()),
+                formatClass(requireNonNull(ctx.method().getContainingClass())),
+                formatClass(requireNonNull(ctx.superMethod().getContainingClass())));
+      });
   public static final Simple<PsiClass> CLASS_ALREADY_IMPORTED =
     error(PsiClass.class, "class.already.imported").withAnchor(PsiClass::getNameIdentifier)
       .withRawDescription(cls -> message("class.already.imported", formatClass(cls, false)));
@@ -885,6 +903,8 @@ public final class JavaErrorKinds {
     parameterized(PsiTypeTestPattern.class, PsiType.class, "pattern.instanceof.equals")
       .withAnchor(PsiTypeTestPattern::getCheckType)
       .withRawDescription((expr, context) -> message("pattern.instanceof.equals", context.getPresentableText()));
+  public static final Simple<PsiPattern> PATTERN_EXPECTED_CLASS_OR_ARRAY_TYPE =
+    error(PsiPattern.class, "pattern.expected.class.or.array.type");
   
   public static final Simple<PsiTypeElement> INSTANCEOF_TYPE_PARAMETER = error("instanceof.type.parameter");
   public static final Simple<PsiTypeElement> INSTANCEOF_ILLEGAL_GENERIC_TYPE = error("instanceof.illegal.generic.type");
@@ -924,13 +944,55 @@ public final class JavaErrorKinds {
     parameterized(PsiExpression.class, JavaIncompatibleTypeErrorContext.class, "switch.expression.incompatible.type")
       .withRawDescription((expr, context) -> message("switch.expression.incompatible.type", formatType(context.rType()), formatType(context.lType())));
   public static final Simple<PsiElement> SWITCH_LABEL_EXPECTED = error(PsiElement.class, "switch.label.expected");
-  public static final Simple<PsiElement> SWITCH_DIFFERENT_CASE_KINDS = error("switch.different.case.kinds");
+  public static final Simple<PsiStatement> SWITCH_DIFFERENT_CASE_KINDS = error(PsiStatement.class, "switch.different.case.kinds")
+    .withRange(statement -> {
+      if (statement instanceof PsiSwitchLabeledRuleStatement rule) {
+        PsiCaseLabelElementList list = rule.getCaseLabelElementList();
+        if (list != null) {
+          return TextRange.create(0, list.getTextRangeInParent().getEndOffset());
+        }
+      }
+      return null;
+    });
   public static final Parameterized<PsiExpression, JavaPsiSwitchUtil.SelectorKind> SWITCH_SELECTOR_TYPE_INVALID =
     parameterized(PsiExpression.class, JavaPsiSwitchUtil.SelectorKind.class, "switch.selector.type.invalid")
       .withRawDescription((expr, kind) -> kind.getFeature() == null ?
                                           message("switch.selector.type.invalid", formatType(expr.getType())) :
                                           message("switch.selector.type.invalid.level", formatType(expr.getType()), 
                                                   PsiUtil.getLanguageLevel(expr).getShortText()));
+  public static final Parameterized<PsiCaseLabelElement, PsiType> SWITCH_NULL_TYPE_INCOMPATIBLE =
+    parameterized(PsiCaseLabelElement.class, PsiType.class, "switch.null.type.incompatible")
+      .withRawDescription((label, selectorType) -> message("switch.null.type.incompatible", formatType(selectorType)));
+  public static final Simple<PsiReferenceExpression> SWITCH_LABEL_QUALIFIED_ENUM = 
+    error(PsiReferenceExpression.class, "switch.label.qualified.enum");
+  public static final Simple<PsiExpression> SWITCH_LABEL_CONSTANT_EXPECTED = 
+    error(PsiExpression.class, "switch.label.constant.expected");
+  public static final Simple<PsiCaseLabelElement> SWITCH_LABEL_UNEXPECTED = error("switch.label.unexpected");
+  public static final Parameterized<PsiDefaultCaseLabelElement, PsiCaseLabelElementList> SWITCH_DEFAULT_LABEL_CONTAINS_CASE =
+    parameterized("switch.default.label.contains.case");
+  public static final Parameterized<PsiExpression, PsiType> SWITCH_LABEL_PATTERN_EXPECTED = 
+    parameterized(PsiExpression.class, PsiType.class, "switch.label.pattern.expected")
+      .withRawDescription((expr, type) -> message("switch.label.pattern.expected", formatType(type)));
+  public static final Parameterized<PsiElement, Object> SWITCH_LABEL_DUPLICATE =
+    parameterized(PsiElement.class, Object.class, "switch.label.duplicate")
+      .withRawDescription((label, value) -> {
+        if (value instanceof JavaPsiSwitchUtil.SwitchSpecialValue specialValue) {
+          return switch (specialValue) {
+            case UNCONDITIONAL_PATTERN -> message("switch.label.duplicate.unconditional.pattern");
+            case DEFAULT_VALUE -> message("switch.label.duplicate.default");
+            case NULL_VALUE -> message("switch.label.duplicate", PsiKeyword.NULL);
+          };
+        }
+        else if (value instanceof PsiEnumConstant constant) {
+          return message("switch.label.duplicate", constant.getName());
+        }
+        else if (label instanceof PsiLiteralExpression literalExpression) {
+          return message("switch.label.duplicate", literalExpression.getValue());
+        }
+        else {
+          return message("switch.label.duplicate", value);
+        }
+      });
   
   public static final Simple<PsiReferenceExpression> EXPRESSION_EXPECTED = error("expression.expected");
   public static final Parameterized<PsiReferenceExpression, PsiSuperExpression> EXPRESSION_SUPER_UNQUALIFIED_DEFAULT_METHOD = 

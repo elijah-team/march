@@ -23,9 +23,7 @@ import com.intellij.openapi.wm.impl.customFrameDecorations.header.FrameHeader
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.HEADER_HEIGHT_DFM
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.MainFrameCustomHeader
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.titleLabel.SimpleCustomDecorationPath.SimpleCustomDecorationPathComponent
-import com.intellij.openapi.wm.impl.headertoolbar.MainMenuWithButton
-import com.intellij.openapi.wm.impl.headertoolbar.MainToolbar
-import com.intellij.openapi.wm.impl.headertoolbar.computeMainActionGroups
+import com.intellij.openapi.wm.impl.headertoolbar.*
 import com.intellij.platform.ide.menu.IdeJMenuBar
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.ScreenUtil
@@ -82,6 +80,11 @@ internal class ToolbarFrameHeader(
   private var isCompactHeader: Boolean
 
   private val resizeListener = initListenerToResizeMenu()
+  private val widthCalculationListener = object : ToolbarWidthCalculationListener {
+    override fun onToolbarCompressed(event: ToolbarWidthCalculationEvent) {
+      mainMenuWithButton.recalculateWidth(event.toolbar)
+    }
+  }
 
   init {
     // color full toolbar
@@ -282,10 +285,10 @@ internal class ToolbarFrameHeader(
       return
     }
 
-    mainMenuWithButton.clearRemovedItems()
     val newToolbar = withContext(Dispatchers.EDT) {
       toolbar?.removeComponentListener(contentResizeListener)
       toolbar?.removeComponentListener(resizeListener)
+      toolbar?.removeWidthCalculationListener(widthCalculationListener)
       toolbarPlaceholder.removeAll()
       toolbarDisposable?.let {
         Disposer.dispose(it)
@@ -309,6 +312,7 @@ internal class ToolbarFrameHeader(
       toolbarDisposable = newToolbarDisposable
       newToolbar.addComponentListener(resizeListener)
       newToolbar.addComponentListener(contentResizeListener)
+      newToolbar.addWidthCalculationListener(widthCalculationListener)
       this@ToolbarFrameHeader.toolbar = newToolbar
       toolbarHeaderTitle.updateBorders(0)
       if (compactHeader) {
@@ -319,11 +323,11 @@ internal class ToolbarFrameHeader(
         toolbarPlaceholder.add(newToolbar, BorderLayout.CENTER)
       }
 
+      mainMenuWithButton.recalculateWidth(newToolbar)
       newToolbar.revalidate()
       newToolbar.repaint()
       toolbarPlaceholder.revalidate()
       toolbarPlaceholder.repaint()
-      mainMenuWithButton.recalculateWidth(toolbar)
       this@ToolbarFrameHeader.revalidate()
       this@ToolbarFrameHeader.repaint()
     }
@@ -341,6 +345,7 @@ internal class ToolbarFrameHeader(
     ideMenuBar.removeComponentListener(contentResizeListener)
     toolbar?.removeComponentListener(contentResizeListener)
     toolbar?.removeComponentListener(resizeListener)
+    toolbar?.removeWidthCalculationListener(widthCalculationListener)
     toolbarDisposable?.let { Disposer.dispose(it) }
     this.removeComponentListener(resizeListener)
     ideMenuHelper.uninstallListeners()
@@ -391,12 +396,11 @@ internal class ToolbarFrameHeader(
 
   override fun getHeaderBackground(active: Boolean): Color {
     val color = JBUI.CurrentTheme.CustomFrameDecorations.mainToolbarBackground(isActive)
-    return InternalUICustomization.getInstance()?.frameHeaderBackgroundConverter(color) ?: color
+    return InternalUICustomization.getInstance().frameHeaderBackgroundConverter(color) ?: color
   }
 
   override fun getComponentGraphics(graphics: Graphics?): Graphics? {
-    val componentGraphics = super.getComponentGraphics(graphics)
-    return InternalUICustomization.getInstance()?.transformGraphics(this, componentGraphics) ?: componentGraphics
+    return InternalUICustomization.getInstance().transformGraphics(this, super.getComponentGraphics(graphics))
   }
 
   override fun updateActive() {

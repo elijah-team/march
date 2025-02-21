@@ -12,9 +12,7 @@ import com.intellij.openapi.util.NlsContexts;
 import com.intellij.pom.java.JavaFeature;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
-import com.intellij.psi.util.ConstantExpressionUtil;
 import com.intellij.psi.util.JavaPsiSwitchUtil;
-import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.SmartList;
@@ -34,12 +32,12 @@ import java.util.function.Consumer;
 import static java.util.Objects.requireNonNull;
 
 public class SwitchBlockHighlightingModel {
+
   final @NotNull LanguageLevel myLevel;
   final @NotNull PsiSwitchBlock myBlock;
   final @NotNull PsiExpression mySelector;
   final @NotNull PsiType mySelectorType;
   final @NotNull PsiFile myFile;
-  final @NotNull Object myDefaultValue = new Object();
 
   SwitchBlockHighlightingModel(@NotNull LanguageLevel languageLevel,
                                @NotNull PsiSwitchBlock switchBlock,
@@ -87,80 +85,27 @@ public class SwitchBlockHighlightingModel {
     PsiCodeBlock body = myBlock.getBody();
     if (body == null) return;
 
-    MultiMap<Object, PsiElement> values = new MultiMap<>();
-    boolean hasDefaultCase = false;
-    boolean reported = false;
-
-    for (PsiStatement st : body.getStatements()) {
-      if (!(st instanceof PsiSwitchLabelStatementBase labelStatement)) continue;
-      boolean defaultCase = labelStatement.isDefaultCase();
-      if (defaultCase) {
-        values.putValue(myDefaultValue, ObjectUtils.notNull(labelStatement.getFirstChild(), labelStatement));
-        hasDefaultCase = true;
-        continue;
-      }
-      PsiCaseLabelElementList labelElementList = labelStatement.getCaseLabelElementList();
-      if (labelElementList == null) {
-        continue;
-      }
-      for (PsiCaseLabelElement labelElement : labelElementList.getElements()) {
-        if (labelElement instanceof PsiExpression expr) {
-          HighlightInfo.Builder info = HighlightUtil.checkAssignability(mySelectorType, expr.getType(), expr, expr);
-          if (info != null) {
-            errorSink.accept(info);
-            reported = true;
-            continue;
-          }
-          Object value = null;
-          if (expr instanceof PsiReferenceExpression ref) {
-            String enumConstName = evaluateEnumConstantName(ref);
-            if (enumConstName != null) {
-              value = enumConstName;
-              HighlightInfo.Builder info2 = createQualifiedEnumConstantInfo(ref);
-              if (info2 != null) {
-                errorSink.accept(info2);
-                reported = true;
-                continue;
-              }
-            }
-          }
-          if (value == null) {
-            value = ConstantExpressionUtil.computeCastTo(expr, mySelectorType);
-          }
-          if (value == null) {
-            errorSink.accept(createError(expr, JavaErrorBundle.message("constant.expression.required")));
-            reported = true;
-            continue;
-          }
-          fillElementsToCheckDuplicates(values, expr);
-        }
-        else if (labelElement instanceof PsiDefaultCaseLabelElement defaultElement && labelElementList.getElementCount() == 1) {
-          // if default is not the only case in the label, insufficient language level will be reported
-          // see HighlightVisitorImpl#visitDefaultCaseLabelElement
-          HighlightInfo.Builder info = createError(defaultElement, JavaErrorBundle.message("default.label.must.not.contains.case.keyword"));
-          ModCommandAction fix = getFixFactory().createReplaceCaseDefaultWithDefaultFix(labelElementList);
-          info.registerFix(fix, null, null, null, null);
-          errorSink.accept(info);
-          reported = true;
-        }
-        else if (labelElement instanceof PsiPattern) {
-          // ignore patterns. If they appear here, insufficient language level will be reported
-        }
-      }
-    }
-
-    reported |= checkDuplicates(values, errorSink);
     // todo replace with needToCheckCompleteness
-    if (!reported && myBlock instanceof PsiSwitchExpression && !hasDefaultCase) {
+    if (myBlock instanceof PsiSwitchExpression && !hasDefaultCase(body)) {
       PsiClass selectorClass = PsiUtil.resolveClassInClassTypeOnly(mySelectorType);
       if (selectorClass != null && selectorClass.isEnum()) {
-        List<PsiEnumConstant> enumConstants = ContainerUtil.mapNotNull(values.values(), element -> getEnumConstant(element));
-        checkEnumCompleteness(selectorClass, enumConstants, !values.values().isEmpty(), errorSink);
+        List<PsiEnumConstant> enumConstants =
+          ContainerUtil.mapNotNull(SwitchUtils.getSwitchBranches(myBlock), element -> getEnumConstant(element));
+        checkEnumCompleteness(selectorClass, enumConstants, errorSink);
       }
       else {
-        errorSink.accept(createCompletenessInfoForSwitch(!values.keySet().isEmpty()));
+        errorSink.accept(createCompletenessInfoForSwitch());
       }
     }
+  }
+
+  private static boolean hasDefaultCase(@NotNull PsiCodeBlock body) {
+    for (PsiElement st = body.getFirstChild(); st != null; st = st.getNextSibling()) {
+      if (st instanceof PsiSwitchLabelStatementBase labelStatement && labelStatement.isDefaultCase()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static @Nullable PsiEnumConstant getEnumConstant(@Nullable PsiElement element) {
@@ -171,83 +116,12 @@ public class SwitchBlockHighlightingModel {
     return null;
   }
 
-  static @Nullable String evaluateEnumConstantName(@NotNull PsiReferenceExpression expr) {
-    PsiEnumConstant enumConstant = getEnumConstant(expr);
-    if (enumConstant != null) return enumConstant.getName();
-    return null;
-  }
-
-  static @Nullable HighlightInfo.Builder createQualifiedEnumConstantInfo(@NotNull PsiReferenceExpression expr) {
-    if (PsiUtil.isAvailable(JavaFeature.ENUM_QUALIFIED_NAME_IN_SWITCH, expr)) return null;
-    PsiElement qualifier = expr.getQualifier();
-    if (qualifier == null) return null;
-    HighlightInfo.Builder result = createError(expr, JavaErrorBundle.message("qualified.enum.constant.in.switch"));
-    IntentionAction action = getFixFactory().createDeleteFix(qualifier, JavaErrorBundle.message(
-      "qualified.enum.constant.in.switch.remove.fix"));
-    result.registerFix(action, null, null, null, null);
-    return result;
-  }
-
   private static QuickFixFactory getFixFactory() {
     return QuickFixFactory.getInstance();
   }
 
-  void fillElementsToCheckDuplicates(@NotNull MultiMap<Object, PsiElement> elements, @NotNull PsiCaseLabelElement labelElement) {
-    PsiExpression expr = ObjectUtils.tryCast(labelElement, PsiExpression.class);
-    if (expr == null) return;
-    if (expr instanceof PsiReferenceExpression ref) {
-      String enumConstName = evaluateEnumConstantName(ref);
-      if (enumConstName != null) {
-        elements.putValue(enumConstName, labelElement);
-        return;
-      }
-    }
-    Object value = ConstantExpressionUtil.computeCastTo(expr, mySelectorType);
-    if (value != null) {
-      elements.putValue(value, expr);
-    }
-  }
-
-  final boolean checkDuplicates(@NotNull MultiMap<Object, PsiElement> values, Consumer<? super HighlightInfo.Builder> errorSink) {
-    boolean reported = false;
-    for (Map.Entry<Object, Collection<PsiElement>> entry : values.entrySet()) {
-      if (entry.getValue().size() <= 1) continue;
-      Object duplicateKey = entry.getKey();
-      MultiMap<PsiEnumConstant, PsiElement> psiByEnums = new MultiMap<>();
-      for (PsiElement duplicateElement : entry.getValue()) {
-        PsiEnumConstant constant = getEnumConstant(duplicateElement);
-        if (constant != null) {
-          psiByEnums.putValue(constant, duplicateElement);
-          continue;
-        }
-        HighlightInfo.Builder info = createDuplicateInfo(duplicateKey, duplicateElement);
-        errorSink.accept(info);
-        reported = true;
-      }
-      //No two of the case constants associated with a switch block may have the same value. (enum is constant here)
-      for (Map.Entry<PsiEnumConstant, Collection<PsiElement>> references : psiByEnums.entrySet()) {
-        if (references.getValue().size() <= 1) continue;
-        for (PsiElement referenceToEnum : references.getValue()) {
-          HighlightInfo.Builder info = createDuplicateInfo(duplicateKey, referenceToEnum);
-          errorSink.accept(info);
-          reported = true;
-        }
-      }
-    }
-    return reported;
-  }
-
-  @NotNull
-  HighlightInfo.Builder createDuplicateInfo(@Nullable Object duplicateKey, @NotNull PsiElement duplicateElement) {
-    String description = duplicateKey == myDefaultValue ? JavaErrorBundle.message("duplicate.default.switch.label") :
-                         JavaErrorBundle.message("duplicate.switch.label", duplicateKey);
-    HighlightInfo.Builder info = createError(duplicateElement, description);
-    PsiSwitchLabelStatementBase labelStatement = PsiTreeUtil.getParentOfType(duplicateElement, PsiSwitchLabelStatementBase.class);
-    if (labelStatement != null && labelStatement.isDefaultCase()) {
-      IntentionAction action = getFixFactory().createDeleteDefaultFix(myFile, duplicateElement);
-      info.registerFix(action, null, null, null, null);
-    }
-    return info;
+  static @Nullable Object evaluateConstant(@NotNull PsiCaseLabelElement constant) {
+    return JavaPsiFacade.getInstance(constant.getProject()).getConstantEvaluationHelper().computeConstantExpression(constant, false);
   }
 
   boolean needToCheckCompleteness(@NotNull List<? extends PsiCaseLabelElement> elements) {
@@ -260,10 +134,10 @@ public class SwitchBlockHighlightingModel {
 
   void checkEnumCompleteness(@NotNull PsiClass selectorClass,
                              @NotNull List<PsiEnumConstant> enumElements,
-                             boolean hasElements, @NotNull Consumer<? super HighlightInfo.Builder> errorSink) {
+                             @NotNull Consumer<? super HighlightInfo.Builder> errorSink) {
     LinkedHashSet<PsiEnumConstant> missingConstants = findMissingEnumConstant(selectorClass, enumElements);
     if (!enumElements.isEmpty() && missingConstants.isEmpty()) return;
-    HighlightInfo.Builder info = createCompletenessInfoForSwitch(hasElements);
+    HighlightInfo.Builder info = createCompletenessInfoForSwitch();
     if (!missingConstants.isEmpty() && getSwitchSelectorKind() == JavaPsiSwitchUtil.SelectorKind.ENUM) {
       IntentionAction enumBranchesFix =
         getFixFactory().createAddMissingEnumBranchesFix(myBlock, ContainerUtil.map2LinkedSet(missingConstants, PsiField::getName));
@@ -284,7 +158,8 @@ public class SwitchBlockHighlightingModel {
   }
 
   @NotNull
-  HighlightInfo.Builder createCompletenessInfoForSwitch(boolean hasAnyCaseLabels) {
+  HighlightInfo.Builder createCompletenessInfoForSwitch() {
+    boolean hasAnyCaseLabels = JavaPsiSwitchUtil.hasAnyCaseLabels(myBlock);
     @PropertyKey(resourceBundle = JavaErrorBundle.BUNDLE) String messageKey;
     boolean isSwitchExpr = myBlock instanceof PsiExpression;
     if (hasAnyCaseLabels) {
@@ -320,8 +195,7 @@ public class SwitchBlockHighlightingModel {
     List<PsiCaseLabelElement> labelElements =
       ContainerUtil.filterIsInstance(SwitchUtils.getSwitchBranches(switchBlock), PsiCaseLabelElement.class);
     if (labelElements.isEmpty()) return Collections.emptySet();
-    MultiMap<Object, PsiElement> duplicateCandidates = new MultiMap<>();
-    labelElements.forEach(branch -> switchModel.fillElementsToCheckDuplicates(duplicateCandidates, branch));
+    MultiMap<Object, PsiElement> duplicateCandidates = JavaPsiSwitchUtil.getValuesAndLabels(switchBlock);
 
     Set<PsiElement> result = new SmartHashSet<>();
 

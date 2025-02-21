@@ -11,6 +11,7 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.editor.impl.SoftWrapModelImpl
 import com.intellij.openapi.editor.impl.softwrap.EmptySoftWrapPainter
@@ -19,12 +20,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.platform.util.coroutines.childScope
-import com.intellij.psi.PsiDocumentManager
-import com.intellij.psi.PsiFileFactory
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.terminal.session.TerminalSession
 import com.intellij.ui.components.JBLayeredPane
-import com.intellij.util.LocalTimeCounter
 import com.intellij.util.asDisposable
 import com.jediterm.core.util.TermSize
 import com.jediterm.terminal.TtyConnector
@@ -34,7 +32,6 @@ import org.jetbrains.plugins.terminal.block.output.TerminalOutputEditorInputMeth
 import org.jetbrains.plugins.terminal.block.output.TerminalTextHighlighter
 import org.jetbrains.plugins.terminal.block.reworked.*
 import org.jetbrains.plugins.terminal.block.reworked.hyperlinks.TerminalHyperlinkHighlighter
-import org.jetbrains.plugins.terminal.block.reworked.lang.TerminalOutputFileType
 import org.jetbrains.plugins.terminal.block.ui.*
 import org.jetbrains.plugins.terminal.block.ui.TerminalUi.useTerminalDefaultBackground
 import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils
@@ -82,11 +79,7 @@ internal class ReworkedTerminalView(
     terminalInput = TerminalInput(sessionFuture, sessionModel, coroutineScope.childScope("TerminalInput"))
 
     alternateBufferEditor = createAlternateBufferEditor(settings, parentDisposable = this)
-    val alternateBufferModel = TerminalOutputModelImpl(
-      alternateBufferEditor.document,
-      maxOutputLength = 0,
-      WriteActionTerminalDocumentChangesApplier()
-    )
+    val alternateBufferModel = TerminalOutputModelImpl(alternateBufferEditor.document, maxOutputLength = 0)
     configureOutputEditor(
       project,
       editor = alternateBufferEditor,
@@ -101,11 +94,7 @@ internal class ReworkedTerminalView(
     )
 
     outputEditor = createOutputEditor(settings, parentDisposable = this)
-    val outputModel = TerminalOutputModelImpl(
-      outputEditor.document,
-      maxOutputLength = TerminalUiUtils.getDefaultMaxOutputLength(),
-      WriteActionTerminalDocumentChangesApplier()
-    )
+    val outputModel = TerminalOutputModelImpl(outputEditor.document, maxOutputLength = TerminalUiUtils.getDefaultMaxOutputLength())
     val scrollingModel = TerminalOutputScrollingModelImpl(outputEditor, outputModel, coroutineScope.childScope("TerminalOutputScrollingModel"))
     configureOutputEditor(
       project,
@@ -120,7 +109,7 @@ internal class ReworkedTerminalView(
       withTopAndBottomInsets = true,
     )
 
-    terminalSearchController = TerminalSearchController(project, outputEditor)
+    terminalSearchController = TerminalSearchController(project)
 
     val blocksModel = TerminalBlocksModelImpl(outputEditor.document)
     TerminalBlocksDecorator(outputEditor, blocksModel, scrollingModel, coroutineScope.childScope("TerminalBlocksDecorator"))
@@ -200,10 +189,8 @@ internal class ReworkedTerminalView(
 
           val editor = if (state.isAlternateScreenBuffer) alternateBufferEditor else outputEditor
           terminalPanel.setTerminalContent(editor)
+          terminalSearchController.finishSearchSession()
           IdeFocusManager.getInstance(project).requestFocus(terminalPanel.preferredFocusableComponent, true)
-          if (state.isAlternateScreenBuffer) {
-            terminalSearchController.finishSearchSession()
-          }
         }
       }
     }
@@ -279,7 +266,7 @@ internal class ReworkedTerminalView(
   }
 
   private fun createOutputEditor(settings: JBTerminalSystemSettingsProviderBase, parentDisposable: Disposable): EditorEx {
-    val document = createDocument()
+    val document = DocumentImpl("", true)
     val editor = createEditor(document, settings)
     editor.putUserData(TerminalDataContextUtils.IS_OUTPUT_MODEL_EDITOR_KEY, true)
     editor.settings.isUseSoftWraps = true
@@ -293,7 +280,7 @@ internal class ReworkedTerminalView(
   }
 
   private fun createAlternateBufferEditor(settings: JBTerminalSystemSettingsProviderBase, parentDisposable: Disposable): EditorEx {
-    val document = createDocument()
+    val document = DocumentImpl("", true)
     val editor = createEditor(document, settings)
     editor.putUserData(TerminalDataContextUtils.IS_ALTERNATE_BUFFER_MODEL_EDITOR_KEY, true)
     editor.useTerminalDefaultBackground(parentDisposable = this)
@@ -312,20 +299,9 @@ internal class ReworkedTerminalView(
   ): EditorImpl {
     val result = TerminalUiUtils.createOutputEditor(document, project, settings, installContextMenu = false)
     result.contextMenuGroupId = "Terminal.ReworkedTerminalContextMenu"
+    result.softWrapModel.applianceManager.setLineWrapPositionStrategy(TerminalLineWrapPositionStrategy())
     result.softWrapModel.applianceManager.setSoftWrapsUnderScrollBar(true)
     return result
-  }
-
-  private fun createDocument(): Document {
-    val file = PsiFileFactory.getInstance(project).createFileFromText(
-      "terminal_output",
-      TerminalOutputFileType,
-      "",
-      LocalTimeCounter.currentTime(),
-      true,
-      true
-    )
-    return PsiDocumentManager.getInstance(project).getDocument(file)!!
   }
 
   override fun dispose() {}
@@ -378,10 +354,14 @@ internal class ReworkedTerminalView(
 
     fun installSearchComponent(component: SearchReplaceComponent) {
       addToLayer(component, POPUP_LAYER)
+      revalidate()
+      repaint()
     }
 
     fun removeSearchComponent(component: SearchReplaceComponent) {
       remove(component)
+      revalidate()
+      repaint()
     }
 
     override fun getPreferredSize(): Dimension {

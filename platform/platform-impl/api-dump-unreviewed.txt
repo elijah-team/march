@@ -7768,6 +7768,7 @@ f:com.intellij.openapi.editor.impl.softwrap.mapping.SoftWrapApplianceManager
 - com.intellij.diagnostic.Dumpable
 - dumpState():java.lang.String
 - getWidthProvider():com.intellij.openapi.editor.impl.softwrap.mapping.SoftWrapApplianceManager$VisibleAreaWidthProvider
+- setLineWrapPositionStrategy(com.intellij.openapi.editor.LineWrapPositionStrategy):V
 - setWidthProvider(com.intellij.openapi.editor.impl.softwrap.mapping.SoftWrapApplianceManager$VisibleAreaWidthProvider):V
 com.intellij.openapi.editor.impl.softwrap.mapping.SoftWrapApplianceManager$VisibleAreaWidthProvider
 - a:getVisibleAreaWidth():I
@@ -12072,6 +12073,9 @@ f:com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame$Companion
 - f:showIfNoProjectOpened(com.intellij.ide.AppLifecycleListener):V
 - bs:showIfNoProjectOpened$default(com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame$Companion,com.intellij.ide.AppLifecycleListener,I,java.lang.Object):V
 - f:showNow():V
+f:com.intellij.openapi.wm.impl.welcomeScreen.WelcomeScreenActionsUtil
+- <init>():V
+- s:createToolbarTextButtonAction(com.intellij.openapi.actionSystem.AnAction):com.intellij.openapi.actionSystem.ex.CustomComponentAction
 f:com.intellij.openapi.wm.impl.welcomeScreen.WelcomeScreenComponentFactory
 - <init>():V
 - s:createErrorsLink(com.intellij.openapi.Disposable):javax.swing.JComponent
@@ -15160,7 +15164,6 @@ com.intellij.ui.dsl.builder.Panel
 - bs:group$default(com.intellij.ui.dsl.builder.Panel,java.lang.String,Z,kotlin.jvm.functions.Function1,I,java.lang.Object):com.intellij.ui.dsl.builder.Row
 - a:groupRowsRange(java.lang.String,Z,java.lang.Boolean,java.lang.Boolean,kotlin.jvm.functions.Function1):com.intellij.ui.dsl.builder.RowsRange
 - bs:groupRowsRange$default(com.intellij.ui.dsl.builder.Panel,java.lang.String,Z,java.lang.Boolean,java.lang.Boolean,kotlin.jvm.functions.Function1,I,java.lang.Object):com.intellij.ui.dsl.builder.RowsRange
-- ba:horizontalAlign(com.intellij.ui.dsl.gridLayout.HorizontalAlign):com.intellij.ui.dsl.builder.Panel
 - a:indent(kotlin.jvm.functions.Function1):com.intellij.ui.dsl.builder.RowsRange
 - a:onApply(kotlin.jvm.functions.Function0):com.intellij.ui.dsl.builder.Panel
 - a:onIsModified(kotlin.jvm.functions.Function0):com.intellij.ui.dsl.builder.Panel
@@ -15215,7 +15218,6 @@ com.intellij.ui.dsl.builder.Row
 - a:contextHelp(java.lang.String,java.lang.String):com.intellij.ui.dsl.builder.Cell
 - bs:contextHelp$default(com.intellij.ui.dsl.builder.Row,java.lang.String,java.lang.String,I,java.lang.Object):com.intellij.ui.dsl.builder.Cell
 - a:customize(com.intellij.ui.dsl.gridLayout.UnscaledGapsY):com.intellij.ui.dsl.builder.Row
-- ba:customize(com.intellij.ui.dsl.gridLayout.VerticalGaps):com.intellij.ui.dsl.builder.Row
 - a:dropDownLink(java.lang.Object,java.util.List):com.intellij.ui.dsl.builder.Cell
 - a:enabled(Z):com.intellij.ui.dsl.builder.Row
 - a:enabledIf(com.intellij.openapi.observable.properties.ObservableProperty):com.intellij.ui.dsl.builder.Row
@@ -15479,7 +15481,6 @@ e:com.intellij.ui.layout.CCFlags
 a:com.intellij.ui.layout.Cell
 - com.intellij.ui.layout.BaseBuilder
 - <init>():V
-- bf:browserLink(java.lang.String,java.lang.String):com.intellij.ui.layout.CellBuilder
 - bf:button(java.lang.String,kotlin.jvm.functions.Function1):com.intellij.ui.layout.CellBuilder
 - bf:checkBox(java.lang.String):com.intellij.ui.layout.CellBuilder
 - bf:checkBox(java.lang.String,kotlin.jvm.functions.Function0,kotlin.jvm.functions.Function1,java.lang.String):com.intellij.ui.layout.CellBuilder
@@ -15512,25 +15513,18 @@ com.intellij.ui.layout.CellBuilder
 - a:comment(java.lang.String,I,Z):com.intellij.ui.layout.CellBuilder
 - bs:comment$default(com.intellij.ui.layout.CellBuilder,java.lang.String,I,Z,I,java.lang.Object):com.intellij.ui.layout.CellBuilder
 - a:constraints(com.intellij.ui.layout.CCFlags[]):com.intellij.ui.layout.CellBuilder
-- ba:enableIf(com.intellij.ui.layout.ComponentPredicate):com.intellij.ui.layout.CellBuilder
 - ba:focused():com.intellij.ui.layout.CellBuilder
 - a:getComponent():javax.swing.JComponent
 - a:growPolicy(com.intellij.ui.layout.GrowPolicy):com.intellij.ui.layout.CellBuilder
 - a:onApply(kotlin.jvm.functions.Function0):com.intellij.ui.layout.CellBuilder
 - a:onIsModified(kotlin.jvm.functions.Function0):com.intellij.ui.layout.CellBuilder
 - a:onReset(kotlin.jvm.functions.Function0):com.intellij.ui.layout.CellBuilder
-- b:withBinding(kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function2,com.intellij.ui.layout.PropertyBinding):com.intellij.ui.layout.CellBuilder
 - ba:withValidationOnApply(kotlin.jvm.functions.Function2):com.intellij.ui.layout.CellBuilder
 - ba:withValidationOnInput(kotlin.jvm.functions.Function2):com.intellij.ui.layout.CellBuilder
 f:com.intellij.ui.layout.CellBuilder$DefaultImpls
 - bs:comment$default(com.intellij.ui.layout.CellBuilder,java.lang.String,I,Z,I,java.lang.Object):com.intellij.ui.layout.CellBuilder
-- bs:withBinding(com.intellij.ui.layout.CellBuilder,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function2,com.intellij.ui.layout.PropertyBinding):com.intellij.ui.layout.CellBuilder
 f:com.intellij.ui.layout.CellKt
-- bsf:applyToComponent(com.intellij.ui.layout.CellBuilder,kotlin.jvm.functions.Function1):com.intellij.ui.layout.CellBuilder
 - sf:createPropertyBinding(kotlin.reflect.KMutableProperty0,java.lang.Class):com.intellij.ui.layout.PropertyBinding
-- bsf:getSelected(com.intellij.ui.layout.CellBuilder):com.intellij.ui.layout.ComponentPredicate
-- bsf:listCellRenderer(kotlin.jvm.functions.Function4):com.intellij.ui.SimpleListCellRenderer
-- bsf:toNullable(com.intellij.ui.layout.PropertyBinding):com.intellij.ui.layout.PropertyBinding
 - bsf:withTextBinding(com.intellij.ui.layout.CellBuilder,com.intellij.ui.layout.PropertyBinding):com.intellij.ui.layout.CellBuilder
 @:com.intellij.ui.layout.CellMarker
 - java.lang.annotation.Annotation
@@ -15595,10 +15589,8 @@ a:com.intellij.ui.layout.Row
 - <init>():V
 - bf:cell(Z,Z,kotlin.jvm.functions.Function1):V
 - bs:cell$default(com.intellij.ui.layout.Row,Z,Z,kotlin.jvm.functions.Function1,I,java.lang.Object):V
-- ba:getEnabled():Z
 - ba:getVisible():Z
 - a:setCellMode(Z,Z,Z):V
-- ba:setEnabled(Z):V
 - ba:setVisible(Z):V
 com.intellij.ui.layout.RowBuilder
 - com.intellij.ui.layout.BaseBuilder

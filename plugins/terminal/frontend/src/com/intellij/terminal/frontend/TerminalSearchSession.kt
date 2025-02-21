@@ -35,7 +35,7 @@ import javax.swing.JTextArea
 
 internal class TerminalSearchSession(
   private val project: Project,
-  private val editor: EditorEx,
+  private val editor: Editor,
   private val model: FindModel,
   private val closeCallback: () -> Unit,
 ) : SearchSession, SearchResults.SearchResultsListener, SearchReplaceComponent.Listener {
@@ -128,6 +128,12 @@ internal class TerminalSearchSession(
       cursorIndex != -1 -> ApplicationBundle.message("editorsearch.current.cursor.position", cursorIndex, matchesCount)
       else -> ApplicationBundle.message("editorsearch.current.cursor.position", 0, matchesCount)
     }
+    if (matchesCount == 0) {
+      component.setNotFoundBackground()
+    }
+    else {
+      component.setRegularBackground()
+    }
     component.statusText = status
     component.updateActions()
   }
@@ -200,6 +206,12 @@ internal class TerminalSearchSession(
     else null
   }
 
+  fun activate() {
+    component.requestFocusInTheSearchFieldAndSelectContent(project)
+    FindUtil.configureFindModel(false, editor, findModel, false)
+    findModel.isGlobal = false
+  }
+
   override fun getFindModel(): FindModel = model
 
   override fun getComponent(): SearchReplaceComponent = component
@@ -218,6 +230,12 @@ internal class TerminalSearchSession(
     Disposer.dispose(disposable)
     livePreviewController.dispose()
     closeCallback()
+    // We only need to transfer the focus if the editor is still visible.
+    // There can be several reasons for closing the search,
+    // and in some cases the editor can be hidden (e.g., switching to the alternate buffer).
+    if (editor.contentComponent.isShowing) {
+      editor.contentComponent.requestFocusInWindow()
+    }
   }
 
   private class TerminalSearchPresentation(private val editor: Editor) : LivePreviewPresentation {

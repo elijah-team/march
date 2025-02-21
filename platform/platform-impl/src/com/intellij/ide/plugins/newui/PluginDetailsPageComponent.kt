@@ -128,6 +128,7 @@ class PluginDetailsPageComponent @JvmOverloads constructor(
   private var disableFeedbackNotification: BorderLayoutPanel? = null
   private val sentFeedbackPlugins = HashSet<PluginId>()
   private val licensePanel = LicensePanel(false)
+  private val unavailableWithoutSubscriptionBanner: InlineBannerBase? = UnavailableWithoutSubscriptionComponent.getBanner()
   private var homePage: LinkPanel? = null
   private var forumUrl: LinkPanel? = null
   private var licenseUrl: LinkPanel? = null
@@ -341,6 +342,11 @@ class PluginDetailsPageComponent @JvmOverloads constructor(
     topPanel.add(licensePanel)
     licensePanel.border = JBUI.Borders.emptyBottom(5)
 
+    if (unavailableWithoutSubscriptionBanner != null) {
+      topPanel.add(unavailableWithoutSubscriptionBanner, VerticalLayout.FILL_HORIZONTAL)
+      unavailableWithoutSubscriptionBanner.isVisible = false
+    }
+
     createTabs(panel!!)
   }
 
@@ -479,8 +485,6 @@ class PluginDetailsPageComponent @JvmOverloads constructor(
         { this.createUninstallAction() })
       nameAndButtons.addButtonComponent(enableDisableController!!.button.also { gearButton = it })
       nameAndButtons.addButtonComponent(enableDisableController!!.bundledButton.also { myEnableDisableButton = it })
-      myEnableDisableButton?.isEnabled = showComponent?.isNotFreeInFreeMode == true
-      gearButton?.isEnabled = showComponent?.isNotFreeInFreeMode == true
     }
     else {
       gearButton = SelectionBasedPluginModelAction.createGearButton(
@@ -1065,6 +1069,9 @@ class PluginDetailsPageComponent @JvmOverloads constructor(
     }
 
     showLicensePanel()
+
+    unavailableWithoutSubscriptionBanner?.isVisible = showComponent?.isNotFreeInFreeMode == true
+
     val homepage = getPluginHomepage(plugin.pluginId)
 
     if (plugin.isBundled && !plugin.allowBundledUpdate() || !isPluginFromMarketplace || homepage == null) {
@@ -1403,7 +1410,7 @@ class PluginDetailsPageComponent @JvmOverloads constructor(
         val bundled = plugin!!.isBundled
         val isEssential = ApplicationInfo.getInstance().isEssentialPlugin(
           plugin!!.pluginId)
-        gearButton!!.isVisible = !uninstalled && !bundled
+        gearButton!!.isVisible = !uninstalled && !bundled && showComponent?.isNotFreeInFreeMode != true
         myEnableDisableButton!!.isVisible = bundled
         myEnableDisableButton!!.isEnabled = !isEssential && showComponent?.isNotFreeInFreeMode != true
       }

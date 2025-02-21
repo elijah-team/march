@@ -27,7 +27,6 @@ import org.jetbrains.jps.incremental.ModuleBuildTarget;
 import org.jetbrains.jps.incremental.fs.CompilationRound;
 import org.jetbrains.jps.incremental.messages.ProgressMessage;
 import org.jetbrains.jps.incremental.storage.BuildDataManager;
-import org.jetbrains.jps.incremental.storage.dataTypes.LibRootUpdateResult;
 import org.jetbrains.jps.incremental.storage.dataTypes.LibraryRoots;
 import org.jetbrains.jps.model.java.JavaModuleIndex;
 import org.jetbrains.jps.model.java.JpsJavaExtensionService;
@@ -35,8 +34,8 @@ import org.jetbrains.jps.model.library.JpsLibrary;
 import org.jetbrains.jps.model.library.JpsOrderRootType;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -96,14 +95,20 @@ public final class LibraryDependenciesUpdater {
           }
         }
 
-        if (!present.isEmpty()) {
-          HashStream64 hash = Hashing.xxh3_64().hashStream();
-          for (Map.Entry<Path, List<String>> entry : present.entrySet()) {
-            // encoding string as bytes is faster
-            hash.putUnorderedIterable(entry.getValue(), name -> Hashing.xxh3_64().hashBytesToLong(name.getBytes(StandardCharsets.UTF_8)));
-            myNamespaces.put(entry.getKey(), Long.toUnsignedString(hash.getAsLong(), Character.MAX_RADIX));
+        HashStream64 hash = null;
+        for (Map.Entry<Path, List<String>> entry : present.entrySet()) {
+          if (hash == null) {
+            hash = Hashing.komihash5_0().hashStream();
+          }
+          else {
             hash.reset();
           }
+          List<String> libNames = entry.getValue();
+          Collections.sort(libNames);
+          for (String name : libNames) {
+            hash.putString(name);
+          }
+          myNamespaces.put(entry.getKey(), Long.toUnsignedString(hash.getAsLong(), Character.MAX_RADIX));
         }
 
         Set<Path> past = libraryRoots.getRoots(new HashSet<>());
@@ -138,11 +143,14 @@ public final class LibraryDependenciesUpdater {
             deletedRoots.addAll(deleted);
           }
 
-          LibRootUpdateResult libRootUpdateResult = libraryRoots.updateIfExists(libRoot, namespace);
-          if (libRootUpdateResult == LibRootUpdateResult.EXISTS_AND_MODIFIED) {
-            updatedRoots.add(libRoot);
+          BasicFileAttributes attribs = FSOperations.getAttributes(libRoot);
+          if (attribs != null) {
+            if (attribs.isRegularFile() && libraryRoots.update(libRoot, namespace, FSOperations.lastModified(libRoot, attribs))) {
+              // if actually exists, is not a directory and has at lest namespace or timestamp changed
+              updatedRoots.add(libRoot);
+            }
           }
-          else if (libRootUpdateResult == LibRootUpdateResult.DOES_NOT_EXIST) {
+          else {
             // the library is defined in the project, but does not exist on disk => is effectively deleted
             deletedRoots.add(libRoot);
           }
@@ -200,15 +208,19 @@ public final class LibraryDependenciesUpdater {
 
       graph.integrate(diffResult);
 
-      libraryRoots.removeRoots(deletedRoots);
+      for (Path deletedRoot : deletedRoots) {
+        libraryRoots.remove(deletedRoot);
+      }
 
       return diffResult.isIncremental();
     }
     catch (Throwable e) {
       errorsDetected = true;
-      // data from these libraries can be updated only partially
-      // ensure they will be parsed next time
-      libraryRoots.removeRoots(updatedRoots);
+      for (Path path : updatedRoots) {
+        // data from these libraries can be updated only partially
+        // ensure they will be parsed next time
+        libraryRoots.remove(path);
+      }
       throw e;
     }
     finally {

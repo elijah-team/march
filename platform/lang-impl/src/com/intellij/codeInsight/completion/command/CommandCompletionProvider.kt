@@ -117,7 +117,7 @@ internal class CommandCompletionProvider : CompletionProvider<CompletionParamete
         override fun accepts(t: String, context: ProcessingContext?): Boolean {
           return !isReadOnly && commandCompletionType.suffix + t ==
                  commandCompletionFactory.suffix() + commandCompletionFactory.filterSuffix().toString() ||
-                 isReadOnly && commandCompletionType.suffix.toString() + t == commandCompletionFactory.filterSuffix().toString()
+                 isReadOnly && commandCompletionType.suffix + t == commandCompletionFactory.filterSuffix().toString()
         }
       }))
 
@@ -275,7 +275,7 @@ internal class CommandCompletionProvider : CompletionProvider<CompletionParamete
 internal class CommandCompletionUnsupportedOperationException
   : UnsupportedOperationException("It's unexpected to invoke this method on a command completion calculating.")
 
-private class MyEditor(psiFileCopy: PsiFile, private val settings: EditorSettings) : ImaginaryEditor(psiFileCopy.project,
+internal class MyEditor(psiFileCopy: PsiFile, private val settings: EditorSettings) : ImaginaryEditor(psiFileCopy.project,
                                                                                                      psiFileCopy.viewProvider.document!!) {
   override fun notImplemented(): RuntimeException = throw CommandCompletionUnsupportedOperationException()
 
@@ -348,7 +348,7 @@ internal fun findActualIndex(suffix: String, text: CharSequence, offset: Int): I
     ) {
       currentIndex++
     }
-    if (currentIndex <= 1 || text[offset - currentIndex] != '\n') return indexOf
+    if (currentIndex <= 1 || text[offset - currentIndex] != '\n') return 0
     while (currentIndex >= 0 && text[offset - currentIndex].isWhitespace()) {
       currentIndex--
     }
@@ -385,7 +385,6 @@ internal fun findCommandCompletionType(
     return InvocationCommandType.PartialSuffix(text.substring(offset - indexOf + 1, offset),
                                                text.substring(offset - indexOf, offset - indexOf + 1))
   }
-  if (!Registry.`is`("ide.completion.command.full.line.enabled")) return null
   if (indexOf > 0) {
     //full empty line
     return InvocationCommandType.FullLine(text.substring(offset - indexOf, offset), "")
