@@ -23,12 +23,10 @@ import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectCloseListener
-import com.intellij.openapi.project.ProjectCoreUtil
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.project.ProjectStorePathManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
-import com.intellij.openapi.project.impl.OpenProjectImplOptions
 import com.intellij.openapi.project.impl.createIdeFrame
-import com.intellij.openapi.project.impl.frame
 import com.intellij.openapi.util.ModificationTracker
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.io.toNioPathOrNull
@@ -123,7 +121,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
 
   final override fun getState(): RecentProjectManagerState = state
 
-  internal fun getProjectMetaInfo(projectStoreBaseDir: Path): RecentProjectMetaInfo? {
+  @Internal fun getProjectMetaInfo(projectStoreBaseDir: Path): RecentProjectMetaInfo? {
     val path = getProjectPath(projectStoreBaseDir) ?: return null
     synchronized(stateLock) {
       return state.additionalInfo.get(path)
@@ -914,7 +912,7 @@ private fun readProjectName(path: String): String {
     return path
   }
 
-  val storePath = ProjectCoreUtil.getProjectStoreDirectory(file)
+  val storePath = ProjectStorePathManager.getInstance().getStoreDirectoryPath(file)
   return JpsPathUtil.readProjectName(storePath) ?: PathUtilRt.getFileName(path)
 }
 
@@ -974,3 +972,16 @@ internal fun getProjectNameOnlyByPath(path: String): String {
 @JvmInline
 @Internal
 value class ProjectNameOrPathIfNotYetComputed(val nameOnlyByProjectPath: String)
+
+@Internal
+data class OpenProjectImplOptions(
+  @JvmField val recentProjectMetaInfo: RecentProjectMetaInfo,
+  @JvmField val frameInfo: FrameInfo? = null,
+  @JvmField val frame: IdeFrameImpl? = null,
+)
+
+val OpenProjectTask.frame: IdeFrameImpl?
+  @Internal get() = (implOptions as OpenProjectImplOptions?)?.frame
+
+val OpenProjectTask.frameInfo: FrameInfo?
+  @Internal get() = (implOptions as OpenProjectImplOptions?)?.frameInfo
