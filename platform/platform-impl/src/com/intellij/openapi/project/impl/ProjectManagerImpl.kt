@@ -55,7 +55,8 @@ import com.intellij.openapi.project.*
 import com.intellij.openapi.project.ex.ProjectEx
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.project.impl.ProjectImpl.Companion.PROJECT_PATH
-import com.intellij.openapi.project.impl.ProjectImpl.Companion.schedulePreloadServices
+import com.intellij.openapi.project.impl.ProjectManagerImpl.Companion.initEssentialProjectPreInit
+import com.intellij.openapi.startup.InitProjectActivity
 import com.intellij.openapi.startup.StartupManager
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
@@ -119,6 +120,10 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
       withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
         notificationManager.dispatchEarlyNotifications()
       }
+    }
+
+    suspend fun initEssentialProjectPreInit(project: Project) {
+      runApprovedExtensions(project, "com.intellij.projectPreInit")
     }
   }
 
@@ -337,7 +342,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
     @Suppress("TestOnlyProblems")
     if (isLight(project)) {
       // if we close the project at the end of the test, mark it closed;
-      // if we are shutting down the entire test framework, proceed to full dispose
+      // If we are shutting down the entire test framework, make sure to fully dispose of it
       val projectImpl = project as ProjectImpl
       if (!projectImpl.isTemporarilyDisposed) {
         @Suppress("ForbiddenInSuspectContextMethod")
@@ -663,7 +668,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
               )
             }
             result = project
-            // must be under try-catch to dispose project on beforeOpen or preparedToOpen callback failures
+            // must be under try-catch to dispose a project on beforeOpen or preparedToOpen callback failures
             if (options.project == null) {
               val beforeOpen = options.beforeOpen
               if (beforeOpen != null && !beforeOpen(project)) {
@@ -930,7 +935,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
     )
 
     if (conversionResult != null && !conversionResult.conversionNotNeeded()) {
-      StartupManager.getInstance(project).runAfterOpened {
+      project.serviceAsync<StartupManager>().runAfterOpened {
         conversionResult.postStartupActivity(project)
       }
     }
@@ -939,8 +944,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
 
   private suspend fun runConversion(projectPath: Path): ConversionResult? {
     val conversionService = (ApplicationManager.getApplication() as ComponentManagerEx)
-                              .getServiceAsyncIfDefined(ConversionService::class.java)
-                            ?: return null
+                              .getServiceAsyncIfDefined(ConversionService::class.java) ?: return null
     val result = span("project conversion") {
       conversionService.convert(projectPath)
     }
@@ -953,7 +957,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
   protected open fun isRunStartUpActivitiesEnabled(project: Project): Boolean = true
 
   open suspend fun configureWorkspace(project: Project, projectStoreBaseDir: Path, options: OpenProjectTask): Module? {
-    if (options.runConfigurators && (options.isNewProject || ModuleManager.getInstance(project).modules.isEmpty())
+    if (options.runConfigurators && (options.isNewProject || project.serviceAsync<ModuleManager>().modules.isEmpty())
         || isLoadedFromCacheButHasNoModules(project)
     ) {
       val module = PlatformProjectOpenProcessor.runDirectoryProjectConfigurators(
@@ -1304,15 +1308,13 @@ private suspend fun initProject(
   LOG.assertTrue(!project.isDefault)
 
   try {
-    coroutineContext.ensureActive()
-
     val registerComponentActivity = createActivity(project) {
       "project ${StartUpMeasurer.Activities.REGISTER_COMPONENTS_SUFFIX}"
     }
 
     project.putUserDataIfAbsent(PROJECT_PATH, file)
 
-    ProjectEntitiesStorage.getInstance().createEntity(project)
+    serviceAsync<ProjectEntitiesStorage>().createEntity(project)
 
     project.registerComponents()
     registerComponentActivity?.end()
@@ -1330,14 +1332,14 @@ private suspend fun initProject(
     coroutineScope {
       val preInitJob = projectInitHelper?.launchPreInit(project)
 
-      ProjectServiceInitializer.initEssential(project)
+      initEssentialProjectPreInit(project)
       projectInitHelper?.notifyInit(project)
 
       if (preloadServices) {
         schedulePreloadServices(project)
       }
 
-      ProjectServiceInitializer.initNonEssential(project)
+      runApprovedExtensions(project, "com.intellij.projectServiceInitializer")
 
       launch {
         preInitJob?.join()
@@ -1422,38 +1424,17 @@ internal fun isCorePlugin(descriptor: PluginDescriptor): Boolean {
          id.idString == "com.intellij.kotlinNative.platformDeps"
 }
 
-/**
- * Initializes project services as part of project init after service container is configured
- * Can be marked essential to be executed as part of project init before component creation
- *
- * Usage requires IJ Platform team approval (including plugin into allowlist).
- */
-@Internal
-interface ProjectServiceInitializer {
-  suspend fun execute(project: Project)
-
-  companion object {
-    private suspend fun runApprovedExtensions(project: Project, epName: String) {
-      val ep = (ApplicationManager.getApplication().extensionArea as ExtensionsAreaImpl)
-        .getExtensionPoint<ProjectServiceInitializer>(epName)
-      for (adapter in ep.sortedAdapters) {
-        val pluginDescriptor = adapter.pluginDescriptor
-        if (!isCorePlugin(pluginDescriptor)) {
-          LOG.error(PluginException("Plugin $pluginDescriptor is not approved to add ${ep.name}", pluginDescriptor.pluginId))
-          continue
-        }
-        else {
-          adapter.createInstance<ProjectServiceInitializer>(ep.componentManager)?.execute(project)
-        }
-      }
+private suspend fun runApprovedExtensions(project: Project, epName: String) {
+  val ep = (ApplicationManager.getApplication().extensionArea as ExtensionsAreaImpl).getExtensionPoint<InitProjectActivity>(epName)
+  for (adapter in ep.sortedAdapters) {
+    val pluginDescriptor = adapter.pluginDescriptor
+    if (!isCorePlugin(pluginDescriptor)) {
+      LOG.error(PluginException("Plugin $pluginDescriptor is not approved to add ${ep.name}", pluginDescriptor.pluginId))
+      continue
     }
 
-    suspend fun initEssential(project: Project) {
-      runApprovedExtensions(project, "com.intellij.projectServiceInitializer.essential")
-    }
-
-    suspend fun initNonEssential(project: Project) {
-      runApprovedExtensions(project, "com.intellij.projectServiceInitializer")
+    span("run $epName ${adapter.assignableToClassName.substringAfterLast('.')}") {
+      adapter.createInstance<InitProjectActivity>(ep.componentManager)?.run(project)
     }
   }
 }
@@ -1477,7 +1458,7 @@ interface ProjectServiceContainerCustomizer {
 }
 
 /**
- * Checks if the project path is trusted, and shows the Trust Project dialog if needed.
+ * Checks if the project path is trusted and shows the Trust Project dialog if needed.
  *
  * @return true, if we should proceed with project opening, false if the process of project opening should be canceled.
  */
@@ -1490,3 +1471,17 @@ internal suspend fun checkTrustedState(projectStoreBaseDir: Path): Boolean {
 }
 
 internal class ProjectLoadingCancelled(reason: String) : CancellationException(reason)
+
+// for light projects, preload only services that are essential
+// ("await" means "project component loading activity is completed only when all such services are completed")
+internal fun CoroutineScope.schedulePreloadServices(project: ProjectImpl) {
+  launch(CoroutineName("project service preloading (sync)")) {
+    project.preloadServices(
+      modules = PluginManagerCore.getPluginSet().getEnabledModules(),
+      activityPrefix = "project ",
+      syncScope = this,
+      onlyIfAwait = project.isLight,
+      asyncScope = project.asyncPreloadServiceScope,
+    )
+  }
+}
